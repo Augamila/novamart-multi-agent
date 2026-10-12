@@ -594,7 +594,26 @@ information. If nothing relevant was retrieved, reply exactly: NO RELEVANT {doma
 
     @tool
     def retrieve_returns_policy(query: str) -> str:
-        """Retrieve relevant passages from the Returns Policy knowledge base."""
+        """
+        Search the Returns Policy knowledge base and return the top 3 passages.
+
+        Calls the Bedrock Knowledge Bases Retrieve API on config.RETURNS_KB_ID
+        (S3 Vectors index, Titan Text Embeddings V2). The KB indexes
+        policies/returns/: return_policy.txt plus customer_tiers.txt, so tier rules
+        are retrievable from every domain.
+
+        Covers: return windows by tier, the return process and prepaid label, refund timing, non-returnable and gift items, damaged or defective items.
+
+        Args:
+            query: A concise natural-language search query; the retriever
+                agent may rephrase the customer's question first.
+
+        Returns:
+            Up to three passages, highest relevance first, each tagged with its
+            score and source S3 URI, or "No relevant policy documents found."
+            An empty result is returned, not raised - the PolicyAgent decides
+            how to report a gap ("The policy documents do not specify this").
+        """
         return format_kb_results(retrieve_from_knowledge_base(config.RETURNS_KB_ID, query))
 
     returns_retriever = Agent(
@@ -606,7 +625,26 @@ information. If nothing relevant was retrieved, reply exactly: NO RELEVANT {doma
 
     @tool
     def retrieve_shipping_policy(query: str) -> str:
-        """Retrieve relevant passages from the Shipping Policy knowledge base."""
+        """
+        Search the Shipping Policy knowledge base and return the top 3 passages.
+
+        Calls the Bedrock Knowledge Bases Retrieve API on config.SHIPPING_KB_ID
+        (S3 Vectors index, Titan Text Embeddings V2). The KB indexes
+        policies/shipping/: shipping_policy.txt plus customer_tiers.txt, so tier rules
+        are retrievable from every domain.
+
+        Covers: domestic options, prices and delivery times, international shipping and duties, Premium free expedited shipping.
+
+        Args:
+            query: A concise natural-language search query; the retriever
+                agent may rephrase the customer's question first.
+
+        Returns:
+            Up to three passages, highest relevance first, each tagged with its
+            score and source S3 URI, or "No relevant policy documents found."
+            An empty result is returned, not raised - the PolicyAgent decides
+            how to report a gap ("The policy documents do not specify this").
+        """
         return format_kb_results(retrieve_from_knowledge_base(config.SHIPPING_KB_ID, query))
 
     shipping_retriever = Agent(
@@ -618,7 +656,26 @@ information. If nothing relevant was retrieved, reply exactly: NO RELEVANT {doma
 
     @tool
     def retrieve_warranty_policy(query: str) -> str:
-        """Retrieve relevant passages from the Warranty Policy knowledge base."""
+        """
+        Search the Warranty Policy knowledge base and return the top 3 passages.
+
+        Calls the Bedrock Knowledge Bases Retrieve API on config.WARRANTY_KB_ID
+        (S3 Vectors index, Titan Text Embeddings V2). The KB indexes
+        policies/warranty/: warranty_policy.txt plus customer_tiers.txt, so tier rules
+        are retrievable from every domain.
+
+        Covers: standard and electronics warranty terms, coverage and exclusions, the claims process, extended protection plans, the Premium 3-year electronics warranty.
+
+        Args:
+            query: A concise natural-language search query; the retriever
+                agent may rephrase the customer's question first.
+
+        Returns:
+            Up to three passages, highest relevance first, each tagged with its
+            score and source S3 URI, or "No relevant policy documents found."
+            An empty result is returned, not raised - the PolicyAgent decides
+            how to report a gap ("The policy documents do not specify this").
+        """
         return format_kb_results(retrieve_from_knowledge_base(config.WARRANTY_KB_ID, query))
 
     warranty_retriever = Agent(
@@ -1283,7 +1340,13 @@ def deploy_to_agentcore_runtime(
     runtime_arn = agentcore_cli.deployed_runtime_arn()
 
     if not runtime_arn:
-        raise NotImplementedError("deploy_to_agentcore_runtime: AgentCore CLI deployment not implemented")
+        # `agentcore deploy` returned without error but the stack exposes no
+        # runtime ARN - usually a CDK rollback. Fail loudly instead of moving
+        # on to the memory and observability steps with no runtime.
+        raise RuntimeError(
+            f"AgentCore deploy finished but no runtime ARN was found in stack "
+            f"{agentcore_cli.stack_name()}. Check its CloudFormation events, then "
+            f"re-run: python src/agent_orchestrator.py deploy")
 
     # Wait for the runtime to become READY and return its ARN.
     print(f"  Runtime deployed: {runtime_arn}")
@@ -1327,8 +1390,8 @@ def configure_memory(runtime_arn: str) -> str:
         clientToken=str(uuid.uuid4()),
     )
 
-    if response is None:
-        raise NotImplementedError("configure_memory: create_memory() not implemented")
+    if 'memory' not in (response or {}):
+        raise RuntimeError(f"create_memory returned no memory resource: {response!r}")
 
     # Wait until the memory resource is ACTIVE and return its ARN.
     memory = response['memory']
