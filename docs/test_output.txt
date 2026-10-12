@@ -112,7 +112,6 @@ If you have any questions about the return process, please don't hesitate to rea
   X-Ray trace 1-6acac583-7b6423e2291d68bae1183ef9 published successfully.
   Allow 30-60 seconds, then open the Service Map and select 'Last 5 minutes':
   https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#xray:service-map/map
-  Submission step: take a screenshot showing the full NovaMart-Orchestrator → worker-agent call chain.
 
 ────────────────────────────────────────────────────────────
 Session: 2d1e143d | Customer: CUST-002
@@ -246,7 +245,6 @@ Is there a specific item you're considering returning, or can I help you with an
   X-Ray trace 1-6acac5b3-8f2d88b5d45e38d31029faa4 published successfully.
   Allow 30-60 seconds, then open the Service Map and select 'Last 5 minutes':
   https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#xray:service-map/map
-  Submission step: take a screenshot showing the full NovaMart-Orchestrator → worker-agent call chain.
 
 ────────────────────────────────────────────────────────────
 Session: 63426db2 | Customer: CUST-003
@@ -320,4 +318,3 @@ Is there anything else I can help you with today?
   X-Ray trace 1-6acac5da-793b2abc8a2b5a0f3e33d1e5 published successfully.
   Allow 30-60 seconds, then open the Service Map and select 'Last 5 minutes':
   https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#xray:service-map/map
-  Submission step: take a screenshot showing the full NovaMart-Orchestrator → worker-agent call chain.

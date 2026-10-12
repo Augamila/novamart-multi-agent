@@ -27,7 +27,7 @@ updates it after the worker responds.
 Commands:
   python src/agent_orchestrator.py test            # 3 scenarios, local run, traced to X-Ray
   python src/agent_orchestrator.py chat            # interactive terminal chat
-  python src/agent_orchestrator.py deploy          # Tasks 3-6 deployment pipeline (uses the AgentCore CLI)
+  python src/agent_orchestrator.py deploy          # full deployment pipeline (uses the AgentCore CLI)
   python src/agent_orchestrator.py invoke "<msg>"  # call the deployed AgentCore Runtime
   python src/agent_orchestrator.py serve           # HTTP server (what AgentCore Runtime runs)
 
@@ -90,7 +90,7 @@ from agent_utils import (
 # the worker-agent nodes on the X-Ray Service Map) and logged at INFO level.
 # Use it exactly like `strands.tool`:  @tool  above each tool function.
 from agent_observability import (
-    tool, tracer, setup_logging, flush_logs, print_trace_hint,
+    tool, tracer, setup_logging, flush_logs,
     apply_observability_config, wait_for_runtime_ready,
 )
 
@@ -209,7 +209,7 @@ def _update_workflow_state(session_id: str, updates: dict,
 
 
 # ═══════════════════════════════════════════════════════
-#  TASK 2 - MULTI-AGENT ORCHESTRATION
+#  MULTI-AGENT ORCHESTRATION
 # ═══════════════════════════════════════════════════════
 
 from datetime import date, datetime, timezone
@@ -705,7 +705,7 @@ information. If nothing relevant was retrieved, reply exactly: NO RELEVANT {doma
             'Warranty': warranty_retriever,
         }
 
-        # ── Trace: show parallel KB dispatch to learners ──────────────────
+        # ── Trace: show the parallel KB dispatch ──────────────────────────
         trace.kb_start({
             'Returns':  config.RETURNS_KB_ID,
             'Shipping': config.SHIPPING_KB_ID,
@@ -1068,7 +1068,7 @@ with nothing added, removed or summarized."""
 
 def _apply_guardrail(agents: list) -> None:
     """
-    Attach the Bedrock Guardrail (Task 3) to every agent's BedrockModel.
+    Attach the Bedrock Guardrail to every agent's BedrockModel.
     Guardrails are enforced per model invocation, so once GUARDRAIL_ID /
     GUARDRAIL_VERSION are known (in .env locally, as runtime environment
     variables when deployed) every agent in the graph runs behind the
@@ -1137,7 +1137,7 @@ _SRC_DIR        = os.path.dirname(os.path.abspath(__file__))
 
 
 # ═══════════════════════════════════════════════════════
-#  TASK 3 - AGENTCORE DEPLOYMENT + GUARDRAILS
+#  AGENTCORE DEPLOYMENT + GUARDRAILS
 # ═══════════════════════════════════════════════════════
 
 def create_guardrail() -> tuple[str, str]:
@@ -1325,7 +1325,7 @@ def deploy_to_agentcore_runtime(
     missing = [k for k, v in runtime_env.items() if not v]
     if missing:
         raise ValueError(f"Cannot deploy - missing runtime settings: {missing}. "
-                         f"Set the Knowledge Base IDs in .env (Task 5) first.")
+                         f"Set the Knowledge Base IDs in .env first.")
     if not str(guardrail_version).isdigit():
         raise ValueError(f"Guardrail version is {guardrail_version!r}; the runtime "
                          f"must use a published numbered version, not DRAFT.")
@@ -1357,7 +1357,7 @@ def deploy_to_agentcore_runtime(
 
 
 # ═══════════════════════════════════════════════════════
-#  TASK 4 - MEMORY
+#  MEMORY
 # ═══════════════════════════════════════════════════════
 
 def configure_memory(runtime_arn: str) -> str:
@@ -1409,7 +1409,7 @@ def configure_memory(runtime_arn: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════
-#  TASK 6 - OBSERVABILITY
+#  OBSERVABILITY
 # ═══════════════════════════════════════════════════════
 
 def configure_observability(runtime_arn: str) -> None:
@@ -1588,7 +1588,7 @@ def deploy_agentcore_gateway() -> dict:
     Optional extension to the in-process @tool functions. Resolve configured
     Lambda functions first; if none exist, skip gateway creation. Otherwise
     create/reuse the gateway and submit its targets. Connecting agents to this
-    MCP endpoint requires separate integration; this starter uses in-process tools.
+    MCP endpoint requires separate integration; this system uses in-process tools.
 
     Requires Lambda tool functions to be deployed via a separate stack.
     Set ORDERS_FUNCTION, POLICY_FUNCTION, CUSTOMERS_FUNCTION in .env.
@@ -1705,7 +1705,7 @@ def invoke_agent(session_id: str, customer_id: str, user_message: str) -> dict:
 # ═══════════════════════════════════════════════════════
 
 def deploy_all():
-    """Full deployment pipeline. Run after completing all tasks."""
+    """Full deployment pipeline: guardrail, AgentCore Runtime, memory, observability, optional gateway."""
     print("\n" + "="*60)
     print("  Deploying Enterprise Multi-Agent System")
     print("="*60 + "\n")
@@ -1802,7 +1802,8 @@ def run_test_scenarios() -> None:
         with tracer.trace_request(session_id, customer_id, query):
             response = orchestrator(prompt)
         print(f"Response: {response}")
-        print_trace_hint()
+        if tracer.last_trace_id:
+            print(f"X-Ray trace: {tracer.last_trace_id}")
     flush_logs()
 
 
@@ -2000,7 +2001,7 @@ if __name__ == '__main__':
 
     else:
         print("Usage:")
-        print("  python src/agent_orchestrator.py deploy           # Deploy to AgentCore (Tasks 3-6)")
+        print("  python src/agent_orchestrator.py deploy           # Deploy to AgentCore Runtime")
         print("  python src/agent_orchestrator.py test             # Run the 3 test scenarios locally")
         print("  python src/agent_orchestrator.py chat             # Interactive terminal chat")
         print("  python src/agent_orchestrator.py invoke \"<msg>\"   # Call the deployed runtime")

@@ -2,13 +2,16 @@
 
 A customer support system in which five AI agents collaborate to handle order lookups, return and refund decisions, and policy questions for a fictional retailer, NovaMart. It is built with the [Strands Agents SDK](https://strandsagents.com/) and deployed to [Amazon Bedrock AgentCore Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-how-it-works.html). Answers about policy come from parallel multi-agent RAG over three [Amazon Bedrock Knowledge Bases](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-create.html) backed by [Amazon S3 Vectors](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-bedrock-kb.html). Every model call runs behind [Amazon Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html), and every request is traced end to end in AWS X-Ray and CloudWatch.
 
-> **Context.** This is my capstone for the Udacity *Future AWS Agent Engineer* program (Course 3: Enterprise Multi-Agent Architecture). The starter scaffolding, infrastructure template, test suite and policy data are Udacity's (see [Attribution](#attribution-and-license)). The agent implementations, guardrail, deployment, memory and observability code in `src/agent_orchestrator.py`, the guardrail validation tool, and this write-up are mine.
+> **Origin.** The infrastructure template, test suite, helper modules and policy data come from the Udacity *Future AWS Agent Engineer* program (see [Attribution](#attribution-and-license)). The agents, routing, guardrail, deployment, memory and observability code in `src/agent_orchestrator.py`, the guardrail test tools and this write-up are mine.
+
+> **Follow-up: [novamart-agent-hardening](https://github.com/Augamila/novamart-agent-hardening).** The end-to-end test in [§7.1](#71-end-to-end-guardrail-test) found that this system's key behavioural rule (only the CommunicationAgent speaks to the customer) was enforced only by a prompt, and failed under a prompt-injection attempt. The follow-up repository documents the findings, moves the rule into code, and verifies the fix before and after in production. This repository is kept as the **baseline**.
 
 | Result | |
 |---|---|
-| Automated test suite (`tests/test_agent.py all`) | **120 / 120** |
-| Graded scenarios (return, policy, arithmetic) | Correct routing and answers, locally and from the deployed runtime |
-| Guardrail validation (`tools/validate_guardrail.py`) | 12 / 12 graded cases as expected; 1 known gap documented |
+| Automated test suite (`tests/test_agent.py all`) | **120 / 120** checks pass |
+| Core scenarios (return, policy, arithmetic) | Correct routing and answers, locally and from the deployed runtime |
+| Guardrail validation (`tools/validate_guardrail.py`) | 12 / 12 cases as expected; 1 known gap documented |
+| End-to-end guardrail test on the deployed runtime | 7 / 7 scored cases as expected; 2 replies leaked internal text ([§7.1](#71-end-to-end-guardrail-test); fixed in the [follow-up](https://github.com/Augamila/novamart-agent-hardening)) |
 
 ---
 
@@ -72,7 +75,7 @@ flowchart LR
     RT -.-> OBS[CloudWatch Logs<br/>X-Ray / Transaction Search]
 ```
 
-![Architecture overview (Udacity course diagram)](diagrams/architecture-overview.png)
+![Architecture overview](diagrams/architecture-overview.png)
 
 | Agent | Model | Responsibility | Tools |
 |---|---|---|---|
@@ -113,7 +116,7 @@ sequenceDiagram
     C-->>U: reply, returned verbatim by the orchestrator
 ```
 
-The three graded scenarios exercise three different paths:
+The three core scenarios exercise three different paths:
 
 | Request | Route | Outcome |
 |---|---|---|
@@ -150,7 +153,7 @@ The guardrail (`create_guardrail()`) applies:
 | Denied topics (Standard tier) | Competitor products, pricing negotiations, legal threats |
 | Word policy | Managed profanity list |
 
-The **pricing-negotiation topic** needed care. The course warned that broad definitions block the legitimate arithmetic scenario, so the definition is deliberately narrow: asking NovaMart to lower, match or waive a price, explicitly excluding "calculating a total from a price and discount the customer states". It uses the [Standard safeguard tier](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-tiers.html) with cross-region inference, which classifies by meaning rather than keywords.
+The **pricing-negotiation topic** needed care. A broad definition would block the legitimate arithmetic scenario, so the definition is deliberately narrow: asking NovaMart to lower, match or waive a price, explicitly excluding "calculating a total from a price and discount the customer states". It uses the [Standard safeguard tier](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-tiers.html) with cross-region inference, which classifies by meaning rather than keywords.
 
 `tools/validate_guardrail.py` runs adversarial and benign inputs through the published version with the [ApplyGuardrail API](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-use-independent-api.html) **before** deployment:
 
@@ -173,27 +176,19 @@ The last row is a finding, not a test failure. See [Limitations](#9-limitations-
 
 ![X-Ray Trace Map: client, orchestrator, four worker agents and three Knowledge Bases, all edges Ok 100%](docs/screenshots/trace-map-fullres.png)
 
-The map above covers a three-hour window of traffic against the deployed runtime (the Stretch Goal A run plus a policy question): the orchestrator, all four worker agents and the three Knowledge Base retrievals, with every edge at **Ok 100%** (no errors or faults). Read it as a *service* map, not an agent call tree: all five agents run in one AgentCore process, so the Knowledge Base nodes hang off the orchestrator service rather than off PolicyAgent. The parent-child structure (orchestrator → PolicyAgent → three parallel retrievers) is visible in the individual trace timelines.
+The map above covers a three-hour window of traffic against the deployed runtime (the end-to-end guardrail test plus a policy question): the orchestrator, all four worker agents and the three Knowledge Base retrievals, with every edge at **Ok 100%** (no errors or faults). Read it as a *service* map, not an agent call tree: all five agents run in one AgentCore process, so the Knowledge Base nodes hang off the orchestrator service rather than off PolicyAgent. The parent-child structure (orchestrator → PolicyAgent → three parallel retrievers) is visible in the individual trace timelines.
 
 Tracing is how the concurrency fault in [Lesson 1](#11-lessons-learned) was found: a red ring on the PolicyAgent node, then a 99 ms faulted segment inside the trace.
 
 ## 7. Results and evidence
 
-![120/120](docs/screenshots/screenshot-tests-120.png)
+![Automated test suite: 120/120](docs/screenshots/screenshot-tests-120.png)
 
-| Task | Area | Points |
-|---|---|---|
-| 2 | Multi-agent orchestration | 40 / 40 |
-| 3 | AgentCore Runtime + Guardrails | 20 / 20 |
-| 4 | AgentCore Memory | 15 / 15 |
-| 5 | Knowledge Bases + parallel retrieval | 25 / 25 |
-| 6 | CloudWatch + X-Ray | 20 / 20 |
+The automated suite checks every layer against live AWS resources: the five agents and their models, parallel retrieval, the guardrail's policies and published version, the runtime's status and environment, the memory strategy, the three Knowledge Bases (Titan Text Embeddings V2, completed syncs, passages returned) and CloudWatch/X-Ray configuration. The full run of the three core scenarios is in [`docs/test_output.txt`](docs/test_output.txt).
 
-Further evidence is in [`docs/screenshots/`](docs/screenshots/): the full test-run output for all three scenarios, each Knowledge Base (synced data source, Titan Text Embeddings V2 at 1024 dimensions, S3 Vectors index), and the AgentCore Runtime (READY, with its guardrail, KB and observability environment variables).
+### 7.1 End-to-end guardrail test
 
-### 7.1 Stretch Goal A: the guardrail on the deployed runtime
-
-`tools/validate_guardrail.py` proves the guardrail in isolation. Stretch Goal A asks whether it holds **end to end**, through AgentCore Runtime and the five-agent graph. `tools/run_stretch_goal_a.ps1` sends eight prompts to the deployed runtime and then re-runs the ApplyGuardrail validator against the same guardrail version, so both layers are recorded in one file: [`docs/stretch_goal_a_output.txt`](docs/stretch_goal_a_output.txt).
+`tools/validate_guardrail.py` proves the guardrail in isolation. The end-to-end test asks whether it holds, through AgentCore Runtime and the five-agent graph. `tools/run_guardrail_e2e.ps1` sends eight prompts to the deployed runtime and then re-runs the ApplyGuardrail validator against the same guardrail version, so both layers are recorded in one file: [`docs/guardrail_e2e_baseline.txt`](docs/guardrail_e2e_baseline.txt).
 
 | Prompt | Expected | Deployed runtime | ApplyGuardrail |
 |---|---|---|---|
@@ -212,7 +207,7 @@ Further evidence is in [`docs/screenshots/`](docs/screenshots/): the full test-r
 
 1. **Idempotency holds in production.** ORD-27176 already had a return from earlier test runs. The runtime returned the existing reference instead of creating a second refund: the conditional-write control in `initiate_refund` (§4.1) working end to end.
 2. **The injection case passed by behaviour, not by control.** The guardrail allowed the prompt; Claude Haiku declined it and stayed on CUST-001. One refusal from a probabilistic model is not evidence of a control, so limitations #1 and #2 stand. Repeated trials (pass^k) and server-side identity binding are the remediation.
-3. **Internal text reached the customer.** The injection reply was written by the orchestrator itself and mentions its "routing rules" and the session ID; the discount reply opens with "no agent findings". See limitation #13.
+3. **Internal text reached the customer.** The injection reply was written by the orchestrator itself and mentions its "routing rules" and the session ID; the discount reply opens with "no agent findings". See limitation #13; the fix is in [novamart-agent-hardening](https://github.com/Augamila/novamart-agent-hardening).
 
 ## 8. Running it yourself
 
@@ -261,14 +256,14 @@ These are presented as I would present findings in a model validation: what the 
 | 3 | **RAG answers are not checked for grounding.** | The PolicyAgent could state something the passages don't support. | Run a [contextual grounding check](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-contextual-grounding-check.html) on the PolicyAgent's answer through ApplyGuardrail, passing the retrieved passages as the grounding source and the customer question as the query. It suits this single-turn QA step; AWS notes it does not support conversational chatbot use. |
 | 4 | **The return window counts from the order date; the written policy counts from delivery.** | The system is stricter than the published policy in the gap between order and delivery. The seed data has no actual delivery date. | Store a real `delivered_at` timestamp and measure the window from it. More generally, generate the deterministic rule from the same source as the policy document so the two cannot drift apart. |
 | 5 | **Guardrail on every internal model call.** | One request triggers roughly 8–15 guardrail evaluations, which adds cost and latency. | Apply the guardrail at the trust boundary (customer input and final output) with [ApplyGuardrail](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-use-independent-api.html), and treat agent-to-agent traffic as internal. |
-| 6 | **Memory is provisioned but not used.** Task 4 creates an AgentCore Memory resource with a summary strategy, but the agents don't read from or write to it, and each `invoke` uses a new runtime session. | No continuity across turns in the deployed system. | Use a stable session ID per conversation and wire in [AgentCore Memory for Strands](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/strands-sdk-memory.html), with `actorId` = authenticated customer and `sessionId` = conversation, matching the `/summaries/{actorId}/{sessionId}` namespace. |
+| 6 | **Memory is provisioned but not used.** The deploy creates an AgentCore Memory resource with a summary strategy, but the agents don't read from or write to it, and each `invoke` uses a new runtime session. | No continuity across turns in the deployed system. | Use a stable session ID per conversation and wire in [AgentCore Memory for Strands](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/strands-sdk-memory.html), with `actorId` = authenticated customer and `sessionId` = conversation, matching the `/summaries/{actorId}/{sessionId}` namespace. |
 | 7 | **Free-text hand-offs between agents.** | The CommunicationAgent paraphrases free text, so a reference number or amount could be miscopied. | Use typed structured output (a `RefundDecision` model) for the hand-off, and add a deterministic check that any `RET-` reference in the reply matches the one in state. |
 | 8 | **Routing order relies on the prompt, apart from execution order.** | "Communication agent last" holds because the model follows instructions, not because code enforces it. | A Strands hook that checks the tool sequence after each turn: invoke communication if it was skipped, and count violations as a metric. |
 | 9 | **No auditable decision record.** WorkflowState rows expire after 24 hours, and traces are telemetry, not an audit log. | A refund decision can't be reconstructed later. | DynamoDB Streams → Firehose → S3 with Object Lock, recording inputs, model ID, prompt version and guardrail version per decision. |
-| 10 | **Three LLM calls per policy question just to call one tool.** | Cost and latency (about 13 s for retrieval). | The project requires retriever *agents*. In production, call `retrieve()` directly or use Haiku for retrievers, and use [prompt caching](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html) for the long static system prompts. |
+| 10 | **Three LLM calls per policy question just to call one tool.** | Cost and latency (about 13 s for retrieval). | The design uses retriever *agents* to demonstrate multi-agent RAG. In production, call `retrieve()` directly or use Haiku for retrievers, and use [prompt caching](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html) for the long static system prompts. |
 | 11 | **Broad IAM.** The execution role uses `Resource: "*"` for most actions. | Every agent can, in principle, do everything the role can. | Scope DynamoDB to the three table ARNs (write only on Orders), Retrieve to the three KB ARNs, and InvokeModel to the two inference profiles. Moving `initiate_refund` behind its own Lambda via AgentCore Gateway separates read access from write access. |
 | 12 | **No evaluation set.** | Prompt changes are tested by eye. | A golden dataset (routing path, decision, required facts, adversarial cases) scored automatically on each change. This is ongoing monitoring in the SR 26-2 sense. |
-| 13 | **Internal text can reach the customer.** When the orchestrator answers without calling the CommunicationAgent (e.g. the injection prompt in §7.1), `run_serve()` falls back to the orchestrator's own text; agents also narrate their reasoning ("no agent findings"). | Breaks the "orchestrator never writes the reply" rule and exposes routing logic and identifiers. | Replace the fallback with a fixed clarification message unless the stop reason is `guardrail_intervened` (whose canned message must still pass through); add a deterministic output check for internal markers (`Session ID`, `agent findings`, tool names) before returning. Re-run the test suite and Stretch Goal A after the change. |
+| 13 | **Internal text can reach the customer.** When the orchestrator answers without calling the CommunicationAgent (the injection prompt in §7.1), `run_serve()` falls back to the orchestrator's own text; agents also narrate their reasoning ("no agent findings"). | Breaks the "orchestrator never writes the reply" rule and exposes routing logic and identifiers. | **Fixed in [novamart-agent-hardening](https://github.com/Augamila/novamart-agent-hardening):** a code-level final-reply control (`final_customer_reply()`) with a marker filter, verified 8/8 on the redeployed runtime. |
 | 14 | **The seeded policy documents conflict.** `customer_tiers.txt` gives Standard customers a 1-year electronics warranty; `warranty_policy.txt` says electronics carry 2 years. | Answers depend on which passage ranks higher. The PolicyAgent is told to report conflicts rather than choose, but that is a prompt instruction, not a guarantee. | Fix the source documents and make one of them authoritative; add a golden-set question that targets the conflict so a silent pick is caught. |
 
 ## 10. Applying the pattern elsewhere
@@ -294,15 +289,13 @@ The common thread is that **retrieval and drafting are delegated, decisions are 
 
 **2. Configuration errors fail silently in RAG.** The Warranty KB's data source was saved without a prefix, so it indexed **all** policy documents. Retrieval still returned relevant text, every test passed, and the issue only appeared when the warranty retriever returned returns-policy passages. A second attempt failed because leading spaces had been pasted into the S3 URI. Verify the configuration (`get-data-source`) and the provenance of what is retrieved (`location.s3Location.uri`), not just that something comes back.
 
-**3. Evidence is a deliverable.** The first submission scored 120/120 on the automated suite and was still returned, because the reviewer could not see the deployment: no KB screenshots, no test-run output, and a `.env` that didn't appear on their system (files starting with a dot are hidden on macOS and Linux). In regulated environments, "it works" and "it can be shown to work" are separate requirements.
+**3. Match the runtime.** AgentCore Runtime runs Python 3.12 on arm64. Developing on a different interpreter version risks behaviour that passes locally and fails when deployed.
 
-**4. Match the runtime.** AgentCore Runtime runs Python 3.12 on arm64. Developing on a different interpreter version risks behaviour that passes locally and fails when deployed.
+**4. The environment is part of the system.** Problems I hit along the way: a stale `CURL_CA_BUNDLE` left by a PostgreSQL installer broke pip (and would have broken boto3); expiring short-lived credentials interrupted long operations; a full disk stopped the CLI install; PowerShell pipes corrupted UTF-8 output. None were code bugs, but each cost time. **Refresh credentials immediately before long deploys**, and set `[Console]::OutputEncoding` to UTF-8 before piping Python output.
 
-**5. The environment is part of the system.** Problems I hit along the way: a stale `CURL_CA_BUNDLE` left by a PostgreSQL installer broke pip (and would have broken boto3); expiring lab credentials interrupted long operations; a full disk stopped the CLI install; PowerShell pipes corrupted UTF-8 output. None were code bugs, but each cost time. **Refresh credentials immediately before long deploys**, and set `[Console]::OutputEncoding` to UTF-8 before piping Python output.
+**5. Keep LLM judgement and deterministic rules separate.** The model is good at understanding the request and explaining the outcome. Arithmetic, date windows and authorization belong in code. When both exist, the code wins.
 
-**6. Keep LLM judgement and deterministic rules separate.** The model is good at understanding the request and explaining the outcome. Arithmetic, date windows and authorization belong in code. When both exist, the code wins.
-
-**7. Guardrail topics need precise definitions.** "Pricing" means haggling, not arithmetic. A test harness with both allowed and blocked cases is the only reliable way to tune a topic definition.
+**6. Guardrail topics need precise definitions.** "Pricing" means haggling, not arithmetic. A test harness with both allowed and blocked cases is the only reliable way to tune a topic definition.
 
 ## 12. Next-level projects
 
@@ -342,6 +335,6 @@ Ordered from the closest extension to the furthest:
 
 The project scaffolding (`config.py`, `infrastructure/`, `tests/`, `agentcore/`, the pre-written modules in `src/`, the diagrams and the policy documents) comes from Udacity's [cd14764-aws-agentic-c3-classroom](https://github.com/udacity/cd14764-aws-agentic-c3-classroom) repository, © Udacity, Inc., licensed under [CC BY-NC-ND 4.0](http://creativecommons.org/licenses/by-nc-nd/4.0) as described in that repository's `LICENSE.md`. It is reproduced here for non-commercial, educational purposes with attribution.
 
-My contributions: the implementations in `src/agent_orchestrator.py` (agents, tools, routing, guardrail, deployment, memory, observability, and the concurrency fix), `tools/validate_guardrail.py`, and this documentation.
+My contributions: the implementations in `src/agent_orchestrator.py` (agents, tools, routing, guardrail, deployment, memory, observability, and the concurrency fix), `tools/validate_guardrail.py`, `tools/run_guardrail_e2e.ps1`, and this documentation.
 
 *Augustine (Gus) Milanzi*
